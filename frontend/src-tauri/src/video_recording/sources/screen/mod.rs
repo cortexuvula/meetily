@@ -32,3 +32,14 @@ pub fn make_screen_capture() -> Box<dyn ScreenCapture> {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     { compile_error!("video_recording::sources::screen: unsupported platform"); }
 }
+
+pub fn list_screens() -> Result<Vec<ScreenInfo>, VideoRecordingError> {
+    #[cfg(target_os = "macos")]
+    { return macos::MacosScreenCapture::list(); }
+    #[cfg(target_os = "windows")]
+    { return windows::WindowsScreenCapture::list(); }
+    #[cfg(target_os = "linux")]
+    { return linux::LinuxScreenCapture::list(); }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    { compile_error!("video_recording::sources::screen: unsupported platform"); }
+}

@@ -4234,6 +4234,7 @@ dependencies = [
  "futures",
  "futures-channel",
  "futures-util",
+ "hound",
  "image",
  "infer 0.15.0",
  "lazy_static",

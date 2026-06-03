@@ -1216,3 +1216,12 @@ pub async fn attempt_device_reconnect(
         }
     }
 }
+
+/// Access the live `Arc<RecordingState>` held inside the global recording manager.
+/// Returns `None` when no recording is currently active (i.e. the manager has not
+/// been created yet via `start_recording*`). Used by the video recording module
+/// to subscribe to the audio broadcast and write mic/system WAV files.
+pub fn current_recording_state() -> Option<std::sync::Arc<super::recording_state::RecordingState>> {
+    let guard = RECORDING_MANAGER.lock().unwrap();
+    guard.as_ref().map(|m| m.get_state().clone())
+}

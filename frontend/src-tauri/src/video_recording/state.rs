@@ -2,7 +2,22 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use parking_lot::Mutex;
 use crate::video_recording::error::VideoRecordingError;
-use crate::video_recording::ffmpeg::FfmpegVideoOnly;
+use crate::video_recording::pipeline::VideoPipeline;
+use crate::video_recording::sources::camera::CameraCapture;
+use crate::video_recording::sources::screen::ScreenCapture;
+
+pub struct RunningRecording {
+    pub pipeline: VideoPipeline,
+    pub screen: Box<dyn ScreenCapture>,
+    pub camera: Box<dyn CameraCapture>,
+    pub audio_thread: std::thread::JoinHandle<()>,
+    pub meeting_id: String,
+    pub temp_video: PathBuf,
+    pub mic_wav: PathBuf,
+    pub system_wav: PathBuf,
+    pub final_video: PathBuf,
+    pub ffmpeg_path: PathBuf,
+}
 
 #[derive(Default)]
 pub struct VideoRecordingState {
@@ -11,7 +26,7 @@ pub struct VideoRecordingState {
     is_stopping: AtomicBool,
     is_paused: AtomicBool,
     current_meeting_id: Mutex<Option<String>>,
-    ffmpeg: Mutex<Option<FfmpegVideoOnly>>,
+    running: Mutex<Option<RunningRecording>>,
     last_error: Mutex<Option<VideoRecordingError>>,
     final_path: Mutex<Option<PathBuf>>,
 }
@@ -48,20 +63,24 @@ impl VideoRecordingState {
         Ok(())
     }
 
-    pub fn mark_started(&self, meeting_id: String, ffmpeg: FfmpegVideoOnly) {
-        self.ffmpeg.lock().replace(ffmpeg);
+    pub fn mark_started(&self, meeting_id: String) {
         self.current_meeting_id.lock().replace(meeting_id);
         self.is_starting.store(false, Ordering::SeqCst);
         self.is_recording.store(true, Ordering::SeqCst);
         self.last_error.lock().take();
     }
 
-    pub fn try_stop(&self) -> Result<FfmpegVideoOnly, VideoRecordingError> {
-        if !self.is_recording.load(Ordering::SeqCst) {
-            return Err(VideoRecordingError::NotRecording);
-        }
-        self.is_stopping.store(true, Ordering::SeqCst);
-        self.ffmpeg.lock().take().ok_or(VideoRecordingError::NotRecording)
+    pub fn mark_failed(&self, error: VideoRecordingError) {
+        self.is_starting.store(false, Ordering::SeqCst);
+        self.last_error.lock().replace(error);
+    }
+
+    pub fn take_running(&self) -> Option<RunningRecording> {
+        self.running.lock().take()
+    }
+
+    pub fn store_running(&self, running: RunningRecording) {
+        self.running.lock().replace(running);
     }
 
     pub fn mark_stopped(&self, final_path: Option<PathBuf>, error: Option<VideoRecordingError>) {

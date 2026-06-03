@@ -30,3 +30,14 @@ pub fn make_camera_capture() -> Box<dyn CameraCapture> {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     { compile_error!("video_recording::sources::camera: unsupported platform"); }
 }
+
+pub fn list_cameras() -> Result<Vec<CameraInfo>, VideoRecordingError> {
+    #[cfg(target_os = "macos")]
+    { return macos::MacosCameraCapture::list(); }
+    #[cfg(target_os = "windows")]
+    { return windows::WindowsCameraCapture::list(); }
+    #[cfg(target_os = "linux")]
+    { return linux::LinuxCameraCapture::list(); }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    { compile_error!("video_recording::sources::camera: unsupported platform"); }
+}
