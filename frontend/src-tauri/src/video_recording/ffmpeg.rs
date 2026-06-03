@@ -8,7 +8,7 @@ use crate::video_recording::error::VideoRecordingError;
 /// The audio streams are muxed in later by `mux_final`.
 pub struct FfmpegVideoOnly {
     pub child: Child,
-    pub video_stdin: ChildStdin,
+    pub video_stdin: Option<ChildStdin>,
 }
 
 impl FfmpegVideoOnly {
@@ -33,13 +33,20 @@ impl FfmpegVideoOnly {
         let stdin = child.stdin.take().ok_or_else(|| {
             VideoRecordingError::WriteFailed("ffmpeg stdin not available".into())
         })?;
-        Ok(Self { child, video_stdin: stdin })
+        Ok(Self { child, video_stdin: Some(stdin) })
     }
 
     /// Take the child process out of this struct so the caller can wait on it.
     /// Replaces self.child with a long-running no-op placeholder.
     pub fn take_child(&mut self) -> Child {
         std::mem::replace(&mut self.child, dummy_long_running_child())
+    }
+
+    /// Take the video stdin out of this struct so the caller can write to it.
+    pub fn take_video_stdin(&mut self) -> ChildStdin {
+        self.video_stdin
+            .take()
+            .expect("ffmpeg video stdin already taken")
     }
 }
 
