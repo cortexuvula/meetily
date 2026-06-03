@@ -155,6 +155,13 @@ tauri-plugin-notification = "2.3.1"
 tauri-plugin-updater = "2.3.0"
 tauri-plugin-process = "2.3.0"
 
+# Video recording (Phase 1 of feature/video-recording)
+nokhwa = "0.10"
+xcap = "0.9"
+image = "0.25"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+
 # Desktop-only single instance guard
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "=2.3.7"
