@@ -4,5 +4,6 @@ pub mod error;
 pub mod ffmpeg;
 pub mod preferences;
 pub mod sources;
+pub mod state;
 
 pub use error::VideoRecordingError;
