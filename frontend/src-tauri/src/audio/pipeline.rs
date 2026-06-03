@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::collections::VecDeque;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -694,6 +694,8 @@ pub struct AudioPipeline {
     mixer: ProfessionalAudioMixer,
     // Recording sender for pre-mixed audio
     recording_sender_for_mixed: Option<mpsc::UnboundedSender<AudioChunk>>,
+    // Video recording broadcast tap (passive tee of mixed audio)
+    video_audio_tx: Option<broadcast::Sender<AudioChunk>>,
 }
 
 impl AudioPipeline {
@@ -707,6 +709,7 @@ impl AudioPipeline {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
+        video_audio_tx: Option<broadcast::Sender<AudioChunk>>,
     ) -> Self {
         // Log device characteristics for adaptive buffering
         info!("🎛️ AudioPipeline initializing with device characteristics:");
@@ -760,6 +763,7 @@ impl AudioPipeline {
             ring_buffer,
             mixer,
             recording_sender_for_mixed: None,  // Will be set by manager
+            video_audio_tx,
         }
     }
 
@@ -865,8 +869,8 @@ impl AudioPipeline {
                                 }
                             }
 
-                            // STEP 4: Send mixed audio for recording (WAV file)
-                            if let Some(ref sender) = self.recording_sender_for_mixed {
+                            // STEP 4: Send mixed audio for recording (WAV file) and/or video tap
+                            if self.recording_sender_for_mixed.is_some() || self.video_audio_tx.is_some() {
                                 let recording_chunk = AudioChunk {
                                     data: mixed_with_gain.clone(),
                                     sample_rate: self.sample_rate,
@@ -874,7 +878,12 @@ impl AudioPipeline {
                                     chunk_id: self.chunk_id_counter,
                                     device_type: DeviceType::Microphone,  // Mixed audio
                                 };
-                                let _ = sender.send(recording_chunk);
+                                if let Some(ref video_tx) = self.video_audio_tx {
+                                    let _ = video_tx.send(recording_chunk.clone());
+                                }
+                                if let Some(ref sender) = self.recording_sender_for_mixed {
+                                    let _ = sender.send(recording_chunk);
+                                }
                             }
                         }
                     }
@@ -978,6 +987,10 @@ impl AudioPipelineManager {
         // Set sender in state for audio captures to use
         state.set_audio_sender(audio_sender.clone());
 
+        // Create video audio tap broadcast (passive tee of mixed audio for MP4 muxing)
+        let (video_audio_tx, _video_audio_rx_kept_alive) = broadcast::channel::<AudioChunk>(256);
+        state.set_video_audio_tap_tx(video_audio_tx.clone());
+
         // Create and start pipeline with device information for adaptive mixing
         let mut pipeline = AudioPipeline::new(
             audio_receiver,
@@ -989,6 +1002,7 @@ impl AudioPipelineManager {
             mic_device_kind,
             system_device_name,
             system_device_kind,
+            Some(video_audio_tx),
         );
 
         // CRITICAL FIX: Connect recording sender to receive pre-mixed audio

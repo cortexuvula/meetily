@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use anyhow::Result;
 
 use super::devices::AudioDevice;
@@ -106,6 +106,7 @@ pub struct RecordingState {
 
     // Audio pipeline
     audio_sender: Mutex<Option<mpsc::UnboundedSender<AudioChunk>>>,
+    video_audio_tap_tx: Mutex<Option<broadcast::Sender<AudioChunk>>>,
 
     // Memory optimization
     buffer_pool: AudioBufferPool,
@@ -145,6 +146,7 @@ impl RecordingState {
             recording_start: Mutex::new(None),
             pause_start: Mutex::new(None),
             total_pause_duration: Mutex::new(std::time::Duration::ZERO),
+            video_audio_tap_tx: Mutex::new(None),
         })
     }
 
@@ -260,6 +262,23 @@ impl RecordingState {
     // Audio pipeline management
     pub fn set_audio_sender(&self, sender: mpsc::UnboundedSender<AudioChunk>) {
         *self.audio_sender.lock().unwrap() = Some(sender);
+    }
+
+    pub fn set_video_audio_tap_tx(&self, tx: broadcast::Sender<AudioChunk>) {
+        *self.video_audio_tap_tx.lock().unwrap() = Some(tx);
+    }
+
+    pub fn take_video_audio_tap_tx(&self) -> Option<broadcast::Sender<AudioChunk>> {
+        self.video_audio_tap_tx.lock().unwrap().take()
+    }
+
+    pub fn subscribe_video_audio_tap(&self) -> broadcast::Receiver<AudioChunk> {
+        self.video_audio_tap_tx
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("video audio broadcast not initialized")
+            .subscribe()
     }
 
     pub fn send_audio_chunk(&self, chunk: AudioChunk) -> Result<()> {
@@ -433,6 +452,7 @@ impl Default for RecordingState {
             recording_start: Mutex::new(None),
             pause_start: Mutex::new(None),
             total_pause_duration: Mutex::new(std::time::Duration::ZERO),
+            video_audio_tap_tx: Mutex::new(None),
         }
     }
 }
