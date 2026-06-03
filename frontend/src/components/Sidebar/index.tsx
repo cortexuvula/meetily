@@ -34,6 +34,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 import { appDataDir } from '@tauri-apps/api/path';
 import { VideoRecordButton } from '@/components/VideoRecording/VideoRecordButton';
 import { VideoErrorBanner } from '@/components/VideoRecording/VideoErrorBanner';
+import { VideoSourcePicker } from '@/components/VideoRecording/VideoSourcePicker';
 
 interface SidebarItem {
   id: string;
@@ -900,6 +901,27 @@ const Sidebar: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {jitSelection && (
+        <VideoSourcePicker
+          kind={jitSelection.kind}
+          available={jitSelection.available}
+          onSelect={async (result) => {
+            setJitSelection(null);
+            try {
+              await invoke('start_video_recording', {
+                meetingId: currentMeeting?.id ?? '',
+                savePath: videoSavePath,
+                screenId: result.kind === 'screen' ? result.selectedId : null,
+                cameraId: result.kind === 'camera' ? result.selectedId : null,
+              });
+            } catch (e) {
+              console.error('start_video_recording retry failed', e);
+            }
+          }}
+          onCancel={() => setJitSelection(null)}
+        />
+      )}
     </div>
   );
 };
