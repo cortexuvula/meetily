@@ -11,7 +11,15 @@ impl WindowsCameraCapture {
 
 impl CameraCapture for WindowsCameraCapture {
     fn list() -> Result<Vec<CameraInfo>, VideoRecordingError> {
-        Err(VideoRecordingError::CameraCaptureFailed("Windows camera capture not yet implemented".into()))
+        let devices = nokhwa::query(nokhwa::utils::ApiBackend::Auto)
+            .map_err(|e| VideoRecordingError::CameraCaptureFailed(e.to_string()))?;
+        Ok(devices
+            .into_iter()
+            .map(|d| CameraInfo {
+                id: d.index().to_string(),
+                name: d.human_name(),
+            })
+            .collect())
     }
     fn start(&mut self, _camera_id: &str, _frame_sink: Sender<VideoFrame>) -> Result<(), VideoRecordingError> {
         Err(VideoRecordingError::CameraCaptureFailed("Windows camera capture not yet implemented".into()))

@@ -11,7 +11,20 @@ impl LinuxScreenCapture {
 
 impl ScreenCapture for LinuxScreenCapture {
     fn list() -> Result<Vec<ScreenInfo>, VideoRecordingError> {
-        Err(VideoRecordingError::ScreenCaptureFailed("Linux screen capture not yet implemented".into()))
+        let monitors = xcap::Monitor::all()
+            .map_err(|e| VideoRecordingError::ScreenCaptureFailed(e.to_string()))?;
+        let to_err = |e: xcap::XCapError| VideoRecordingError::ScreenCaptureFailed(e.to_string());
+        monitors
+            .into_iter()
+            .map(|m| {
+                Ok(ScreenInfo {
+                    id: m.id().map_err(to_err)?.to_string(),
+                    name: m.name().map_err(to_err)?,
+                    width: m.width().map_err(to_err)?,
+                    height: m.height().map_err(to_err)?,
+                })
+            })
+            .collect()
     }
     fn start(&mut self, _screen_id: &str, _frame_sink: Sender<VideoFrame>) -> Result<(), VideoRecordingError> {
         Err(VideoRecordingError::ScreenCaptureFailed("Linux screen capture not yet implemented".into()))
