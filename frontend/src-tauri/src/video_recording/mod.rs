@@ -1,3 +1,4 @@
+pub mod audio_tap;
 pub mod compositor;
 pub mod error;
 pub mod ffmpeg;
