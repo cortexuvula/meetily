@@ -156,7 +156,10 @@ tauri-plugin-updater = "2.3.0"
 tauri-plugin-process = "2.3.0"
 
 # Video recording (Phase 1 of feature/video-recording)
-nokhwa = "0.10"
+# `input-native` enables platform-specific camera backends (AVFoundation on macOS,
+# MediaFoundation on Windows, V4L2 on Linux) at runtime. Without it, nokhwa::query
+# returns UnsupportedOperationError on all platforms.
+nokhwa = { version = "0.10", features = ["input-native"] }
 xcap = "0.9"
 image = "0.25"
 crossbeam-channel = "0.5"
