@@ -31,6 +31,9 @@ import Info from '../Info';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
+import { appDataDir } from '@tauri-apps/api/path';
+import { VideoRecordButton } from '@/components/VideoRecording/VideoRecordButton';
+import { VideoErrorBanner } from '@/components/VideoRecording/VideoErrorBanner';
 
 interface SidebarItem {
   id: string;
@@ -76,6 +79,8 @@ const Sidebar: React.FC = () => {
     model: 'parakeet-tdt-0.6b-v3-int8',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
+  const [videoSavePath, setVideoSavePath] = useState<string>('');
+  const [jitSelection, setJitSelection] = useState<{ kind: 'screen' | 'camera'; available: unknown[] } | null>(null);
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -444,6 +449,17 @@ const Sidebar: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const dir = await appDataDir();
+        setVideoSavePath(dir);
+      } catch (e) {
+        console.error('Failed to resolve appDataDir for video recording', e);
+      }
+    })();
+  }, []);
+
   const renderCollapsedIcons = () => {
     if (!isCollapsed) return null;
 
@@ -774,6 +790,7 @@ const Sidebar: React.FC = () => {
         {!isCollapsed && (
 
           <div className="flex-shrink-0 p-2 border-t border-gray-100">
+            <VideoErrorBanner />
             <button
               onClick={handleRecordingToggle}
               disabled={isRecording}
@@ -791,6 +808,14 @@ const Sidebar: React.FC = () => {
                 </>
               )}
             </button>
+
+            <div className="mt-1">
+              <VideoRecordButton
+                meetingId={currentMeeting?.id ?? ''}
+                savePath={videoSavePath}
+                onJitSelection={(kind, available) => setJitSelection({ kind, available })}
+              />
+            </div>
 
             {betaFeatures.importAndRetranscribe && (
               <button
