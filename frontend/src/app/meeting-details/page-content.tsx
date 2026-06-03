@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
+import { MeetingVideoPlayer } from '@/components/VideoRecording/MeetingVideoPlayer';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
 // Custom hooks
@@ -170,6 +171,11 @@ export default function PageContent({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex flex-col h-screen bg-gray-50"
     >
+      {meeting.folder_path && (
+        <div className="px-6 pt-4">
+          <MeetingVideoPlayer meetingFolder={meeting.folder_path} />
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
         <TranscriptPanel
           transcripts={meetingData.transcripts}
