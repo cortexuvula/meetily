@@ -417,6 +417,7 @@ pub fn run() {
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
+        .manage(Arc::new(video_recording::state::VideoRecordingState::default()))
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .setup(|_app| {
             log::info!("Application setup complete");
@@ -749,6 +750,14 @@ pub fn run() {
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
             audio::import::is_import_in_progress_command,
+            // Video recording commands
+            video_recording::commands::start_video_recording,
+            video_recording::commands::stop_video_recording,
+            video_recording::commands::get_video_recording_state,
+            video_recording::commands::list_video_screens,
+            video_recording::commands::list_video_cameras,
+            video_recording::commands::get_video_preferences,
+            video_recording::commands::set_video_preferences,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
