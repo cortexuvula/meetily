@@ -23,6 +23,9 @@ const EMPTY: VideoRecordingStateDto = {
 };
 
 export function useVideoRecordingState() {
+  if (typeof window !== 'undefined') {
+    console.log('[useVideoRecordingState] hook called');
+  }
   const [state, setState] = useState<VideoRecordingStateDto>(EMPTY);
 
   useEffect(() => {

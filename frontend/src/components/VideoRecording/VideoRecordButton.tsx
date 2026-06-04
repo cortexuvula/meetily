@@ -17,6 +17,9 @@ export function VideoRecordButton({
   defaultCameraId,
   onJitSelection,
 }: VideoRecordButtonProps) {
+  if (typeof window !== 'undefined') {
+    console.log('[VideoRecordButton] render — meetingId:', meetingId, 'savePath:', savePath);
+  }
   const state = useVideoRecordingState();
 
   const handleClick = async () => {
