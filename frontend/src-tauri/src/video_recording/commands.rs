@@ -19,6 +19,10 @@ pub async fn start_video_recording<R: Runtime>(
     screen_id: Option<String>,
     camera_id: Option<String>,
 ) -> Result<(), VideoRecordingError> {
+    log::info!(
+        "[video] Tauri command ENTERED: meeting_id={:?} save_path={:?} screen_id={:?} camera_id={:?}",
+        meeting_id, save_path, screen_id, camera_id
+    );
     let prefs = VideoPreferences::default();
     manager::start_video_recording(
         app,
