@@ -782,6 +782,13 @@ pub fn run() {
                     if let Err(e) = summary::summary_engine::force_shutdown_sidecar().await {
                         log::error!("Failed to force shutdown sidecar: {}", e);
                     }
+
+                    // Clean up video recording (best-effort)
+                    if let Some(video_state) = _app_handle.try_state::<Arc<video_recording::state::VideoRecordingState>>() {
+                        if let Err(e) = video_recording::manager::stop_video_recording(video_state.inner().clone()) {
+                            log::warn!("Video recording cleanup returned error: {}", e);
+                        }
+                    }
                 });
                 log::info!("Application cleanup complete");
             }

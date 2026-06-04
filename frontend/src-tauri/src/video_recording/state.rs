@@ -91,3 +91,14 @@ impl VideoRecordingState {
         if let Some(e) = error { self.last_error.lock().replace(e); }
     }
 }
+
+impl Drop for VideoRecordingState {
+    fn drop(&mut self) {
+        if let Some(mut running) = self.running.lock().take() {
+            running.pipeline.signal_stop();
+            running.screen.stop();
+            running.camera.stop();
+            drop(running);
+        }
+    }
+}
