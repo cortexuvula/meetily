@@ -154,7 +154,9 @@ pub fn start_video_recording<R: Runtime>(
 
     // 10. Mark started and store the running recording.
     state.mark_started(meeting_id.clone());
+    log::info!("[video] start: mark_started called, dto={:?}", state.dto());
     let _ = app.emit("video-state-changed", state.dto());
+    log::info!("[video] start: emit dispatched");
     state.store_running(RunningRecording {
         pipeline,
         screen,
@@ -172,6 +174,7 @@ pub fn start_video_recording<R: Runtime>(
 }
 
 pub fn stop_video_recording<R: Runtime>(app: AppHandle<R>, state: Arc<VideoRecordingState>) -> Result<PathBuf, VideoRecordingError> {
+    log::info!("[video] stop: stop_video_recording called");
     let mut running = state.take_running().ok_or(VideoRecordingError::NotRecording)?;
 
     // 1. Signal the compositor stop.
@@ -239,11 +242,13 @@ pub fn stop_video_recording<R: Runtime>(app: AppHandle<R>, state: Arc<VideoRecor
         Ok(()) => {
             state.mark_stopped(Some(running.final_video.clone()), None);
             let _ = app.emit("video-state-changed", state.dto());
+            log::info!("[video] stop: emit dispatched (success)");
             Ok(running.final_video)
         }
         Err(e) => {
             state.mark_stopped(None, Some(e.clone()));
             let _ = app.emit("video-state-changed", state.dto());
+            log::info!("[video] stop: emit dispatched (error)");
             Err(e)
         }
     }
