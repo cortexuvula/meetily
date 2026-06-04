@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 use hound::{WavSpec, SampleFormat, WavWriter};
 use crate::audio::recording_state::DeviceType;
 use crate::video_recording::audio_tap::chunk_to_pcm16_stereo;
@@ -18,7 +18,7 @@ const SAMPLE_RATE: u32 = 48000;
 const AUDIO_CHANNELS: u16 = 2;
 
 pub fn start_video_recording<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: Arc<VideoRecordingState>,
     meeting_id: String,
     save_path: PathBuf,
@@ -154,6 +154,7 @@ pub fn start_video_recording<R: Runtime>(
 
     // 10. Mark started and store the running recording.
     state.mark_started(meeting_id.clone());
+    let _ = app.emit("video-state-changed", state.dto());
     state.store_running(RunningRecording {
         pipeline,
         screen,
@@ -170,7 +171,7 @@ pub fn start_video_recording<R: Runtime>(
     Ok(())
 }
 
-pub fn stop_video_recording(state: Arc<VideoRecordingState>) -> Result<PathBuf, VideoRecordingError> {
+pub fn stop_video_recording<R: Runtime>(app: AppHandle<R>, state: Arc<VideoRecordingState>) -> Result<PathBuf, VideoRecordingError> {
     let mut running = state.take_running().ok_or(VideoRecordingError::NotRecording)?;
 
     // 1. Signal the compositor stop.
@@ -212,6 +213,7 @@ pub fn stop_video_recording(state: Arc<VideoRecordingState>) -> Result<PathBuf, 
     if exit_status.is_none() {
         let err = VideoRecordingError::FfmpegFailed(-1);
         state.mark_stopped(None, Some(err.clone()));
+        let _ = app.emit("video-state-changed", state.dto());
         return Err(err);
     }
 
@@ -236,10 +238,12 @@ pub fn stop_video_recording(state: Arc<VideoRecordingState>) -> Result<PathBuf, 
     match mux_result {
         Ok(()) => {
             state.mark_stopped(Some(running.final_video.clone()), None);
+            let _ = app.emit("video-state-changed", state.dto());
             Ok(running.final_video)
         }
         Err(e) => {
             state.mark_stopped(None, Some(e.clone()));
+            let _ = app.emit("video-state-changed", state.dto());
             Err(e)
         }
     }

@@ -785,7 +785,7 @@ pub fn run() {
 
                     // Clean up video recording (best-effort)
                     if let Some(video_state) = _app_handle.try_state::<Arc<video_recording::state::VideoRecordingState>>() {
-                        if let Err(e) = video_recording::manager::stop_video_recording(video_state.inner().clone()) {
+                        if let Err(e) = video_recording::manager::stop_video_recording(_app_handle.clone(), video_state.inner().clone()) {
                             log::warn!("Video recording cleanup returned error: {}", e);
                         }
                     }
