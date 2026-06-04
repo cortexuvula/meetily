@@ -77,7 +77,7 @@ mod tests {
         assert_eq!(out.len(), 100 * 100 * 4);
         let corner = ((100 * 99 + 95) * 4) as usize;
         assert_eq!(out[corner], 255, "expected blue B channel at bottom-right");
-        let top_left = (0 * 4) as usize;
+        let top_left = 0_usize;
         assert_eq!(out[top_left + 2], 255, "expected red R channel at top-left");
     }
 
@@ -86,7 +86,7 @@ mod tests {
         let mut screen = red_bgra(100, 100);
         let camera = blue_bgra(20, 20);
         let out = composite_pip(&mut screen, 100, 100, &camera, 20, 20, PipPosition::TopLeft, PipSize::Small).unwrap();
-        let top_left = (0 * 4) as usize;
+        let top_left = 0_usize;
         assert_eq!(out[top_left], 255, "expected blue B channel at top-left");
     }
 
