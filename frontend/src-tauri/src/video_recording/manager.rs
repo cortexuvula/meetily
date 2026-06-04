@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter, Runtime};
-use hound::{WavSpec, SampleFormat, WavWriter};
+use hound::{SampleFormat, WavSpec, WavWriter};
 use crate::audio::recording_state::DeviceType;
 use crate::video_recording::audio_tap::chunk_to_pcm16_stereo;
 use crate::video_recording::error::VideoRecordingError;
@@ -16,6 +16,29 @@ use crate::video_recording::state::{RunningRecording, VideoRecordingState};
 
 const SAMPLE_RATE: u32 = 48000;
 const AUDIO_CHANNELS: u16 = 2;
+
+/// Create a WAV file with 1 stereo sample of silence.
+/// Used as a placeholder when the audio recording is not active so the
+/// two-pass FFmpeg mux can still include an audio track.
+fn create_silent_wav(path: &Path) -> Result<(), VideoRecordingError> {
+    let spec = WavSpec {
+        channels: AUDIO_CHANNELS,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec)
+        .map_err(|e| VideoRecordingError::WriteFailed(format!("create silent wav: {}", e)))?;
+    for _ in 0..AUDIO_CHANNELS as usize {
+        writer
+            .write_sample(0i16)
+            .map_err(|e| VideoRecordingError::WriteFailed(format!("write silent sample: {}", e)))?;
+    }
+    writer
+        .finalize()
+        .map_err(|e| VideoRecordingError::WriteFailed(format!("finalize silent wav: {}", e)))?;
+    Ok(())
+}
 
 pub fn start_video_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -119,48 +142,55 @@ pub fn start_video_recording<R: Runtime>(
         .map_err(|e| { notify_failed(&e); e })?;
 
     // 9. Subscribe to the audio broadcast and spawn a thread that writes WAV files.
-    let audio_state = crate::audio::recording_commands::current_recording_state()
-        .ok_or_else(|| {
-            let err = VideoRecordingError::AudioTapFailed("audio recording is not active".into());
-            notify_failed(&err);
-            err
-        })?;
-    let mut audio_rx = audio_state.subscribe_video_audio_tap();
+    //    If the audio recording is not active, generate silent placeholder WAVs
+    //    and skip the audio thread — the video will have silent audio tracks.
+    let audio_thread = match crate::audio::recording_commands::current_recording_state() {
+        Some(audio_state) => {
+            log::info!("[video] start: audio recording is active, will mux live audio");
+            let mut audio_rx = audio_state.subscribe_video_audio_tap();
 
-    let mic_wav_for_thread = mic_wav.clone();
-    let system_wav_for_thread = system_wav.clone();
-    let audio_thread = thread::spawn(move || {
-        let spec = WavSpec {
-            channels: AUDIO_CHANNELS,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        };
-        let mut mic_writer = WavWriter::create(&mic_wav_for_thread, spec).ok();
-        let mut sys_writer = WavWriter::create(&system_wav_for_thread, spec).ok();
+            let mic_wav_for_thread = mic_wav.clone();
+            let system_wav_for_thread = system_wav.clone();
+            Some(thread::spawn(move || {
+                let spec = WavSpec {
+                    channels: AUDIO_CHANNELS,
+                    sample_rate: SAMPLE_RATE,
+                    bits_per_sample: 16,
+                    sample_format: SampleFormat::Int,
+                };
+                let mut mic_writer = WavWriter::create(&mic_wav_for_thread, spec).ok();
+                let mut sys_writer = WavWriter::create(&system_wav_for_thread, spec).ok();
 
-        loop {
-            match audio_rx.blocking_recv() {
-                Ok(chunk) => {
-                    let pcm = chunk_to_pcm16_stereo(&chunk);
-                    let writer = match chunk.device_type {
-                        DeviceType::Microphone => mic_writer.as_mut(),
-                        DeviceType::System => sys_writer.as_mut(),
-                    };
-                    if let Some(w) = writer {
-                        for s in pcm.chunks_exact(2) {
-                            let v = i16::from_le_bytes([s[0], s[1]]);
-                            let _ = w.write_sample(v);
+                loop {
+                    match audio_rx.blocking_recv() {
+                        Ok(chunk) => {
+                            let pcm = chunk_to_pcm16_stereo(&chunk);
+                            let writer = match chunk.device_type {
+                                DeviceType::Microphone => mic_writer.as_mut(),
+                                DeviceType::System => sys_writer.as_mut(),
+                            };
+                            if let Some(w) = writer {
+                                for s in pcm.chunks_exact(2) {
+                                    let v = i16::from_le_bytes([s[0], s[1]]);
+                                    let _ = w.write_sample(v);
+                                }
+                            }
                         }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
+                if let Some(w) = mic_writer.take() { let _ = w.finalize(); }
+                if let Some(w) = sys_writer.take() { let _ = w.finalize(); }
+            }))
         }
-        if let Some(w) = mic_writer.take() { let _ = w.finalize(); }
-        if let Some(w) = sys_writer.take() { let _ = w.finalize(); }
-    });
+        None => {
+            log::warn!("[video] start: audio recording is not active, recording video with silent audio tracks");
+            create_silent_wav(&mic_wav)?;
+            create_silent_wav(&system_wav)?;
+            None
+        }
+    };
 
     // 10. Mark started and store the running recording.
     state.mark_started(meeting_id.clone());
@@ -231,7 +261,7 @@ pub fn stop_video_recording<R: Runtime>(app: AppHandle<R>, state: Arc<VideoRecor
     }
 
     // 6. Wait for the audio thread to finish (so WAV files are finalized).
-    let _ = running.audio_thread.join();
+    let _ = running.audio_thread.map(|t| t.join()).unwrap_or(Ok(()));
 
     // 7. Run the mux.
     let mux_result = mux_final(

@@ -10,7 +10,7 @@ pub struct RunningRecording {
     pub pipeline: VideoPipeline,
     pub screen: Box<dyn ScreenCapture>,
     pub camera: Box<dyn CameraCapture>,
-    pub audio_thread: std::thread::JoinHandle<()>,
+    pub audio_thread: Option<std::thread::JoinHandle<()>>,
     pub meeting_id: String,
     pub temp_video: PathBuf,
     pub mic_wav: PathBuf,
