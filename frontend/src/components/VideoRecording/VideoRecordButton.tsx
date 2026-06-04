@@ -1,6 +1,6 @@
-import { useVideoRecordingState } from './useVideoRecordingState';
-import { invoke } from '@tauri-apps/api/core';
 import { Video } from 'lucide-react';
+import { useVideoRecordingState } from './useVideoRecordingState';
+import { useVideoClickHandler } from './useVideoClickHandler';
 
 interface VideoRecordButtonProps {
   meetingId: string;
@@ -17,40 +17,14 @@ export function VideoRecordButton({
   defaultCameraId,
   onJitSelection,
 }: VideoRecordButtonProps) {
-  if (typeof window !== 'undefined') {
-    console.log('[VideoRecordButton] render — meetingId:', meetingId, 'savePath:', savePath);
-  }
   const state = useVideoRecordingState();
-
-  const handleClick = async () => {
-    if (state.is_recording || state.is_stopping) {
-      try {
-        await invoke('stop_video_recording');
-      } catch (e) {
-        console.error('stop_video_recording failed', e);
-      }
-      return;
-    }
-    try {
-      await invoke('start_video_recording', {
-        meetingId,
-        savePath,
-        screenId: defaultScreenId ?? null,
-        cameraId: defaultCameraId ?? null,
-      });
-    } catch (e: unknown) {
-      const msg = typeof e === 'string' ? e : (e as { message?: string })?.message ?? JSON.stringify(e);
-      if (msg.includes('Multiple screens detected')) {
-        const screens = await invoke<unknown[]>('list_video_screens');
-        onJitSelection('screen', screens);
-      } else if (msg.includes('Multiple cameras detected')) {
-        const cameras = await invoke<unknown[]>('list_video_cameras');
-        onJitSelection('camera', cameras);
-      } else {
-        console.error('start_video_recording failed', e);
-      }
-    }
-  };
+  const handleClick = useVideoClickHandler({
+    meetingId,
+    savePath,
+    defaultScreenId,
+    defaultCameraId,
+    onJitSelection,
+  });
 
   const label = state.is_recording ? 'Stop Video' : 'Record Video';
   const disabled = state.is_starting;

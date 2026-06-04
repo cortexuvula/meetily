@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Video } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -16,6 +16,8 @@ import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useVideoRecordingState } from '@/components/VideoRecording/useVideoRecordingState';
+import { useVideoClickHandler } from '@/components/VideoRecording/useVideoClickHandler';
 
 import {
   Dialog,
@@ -461,6 +463,13 @@ const Sidebar: React.FC = () => {
     })();
   }, []);
 
+  const videoState = useVideoRecordingState();
+  const handleVideoClick = useVideoClickHandler({
+    meetingId: currentMeeting?.id ?? '',
+    savePath: videoSavePath,
+    onJitSelection: (kind, available) => setJitSelection({ kind, available }),
+  });
+
   const renderCollapsedIcons = () => {
     if (!isCollapsed) return null;
 
@@ -504,6 +513,25 @@ const Sidebar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent side="right">
               <p>{isRecording ? "Recording in progress..." : "Start Recording"}</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleVideoClick}
+                disabled={videoState.is_starting}
+                className={`p-2 ${videoState.is_recording ? 'bg-red-500 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'} rounded-full transition-colors duration-150 shadow-sm disabled:opacity-50`}
+              >
+                {videoState.is_recording ? (
+                  <Square className="w-5 h-5 text-white" />
+                ) : (
+                  <Video className="w-5 h-5 text-white" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>{videoState.is_recording ? "Recording in progress..." : "Record Video"}</p>
             </TooltipContent>
           </Tooltip>
 
@@ -810,7 +838,7 @@ const Sidebar: React.FC = () => {
               )}
             </button>
 
-            <div className="mt-1" style={{ border: '3px solid red', padding: '2px' }} data-debug="video-button-wrapper">
+            <div className="mt-1">
               <VideoRecordButton
                 meetingId={currentMeeting?.id ?? ''}
                 savePath={videoSavePath}
