@@ -1,5 +1,6 @@
 import { useVideoRecordingState } from './useVideoRecordingState';
 import { invoke } from '@tauri-apps/api/core';
+import { Video } from 'lucide-react';
 
 interface VideoRecordButtonProps {
   meetingId: string;
@@ -60,6 +61,7 @@ export function VideoRecordButton({
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} rounded-lg transition-colors shadow-sm`}
       title={disabled ? 'Starting...' : label}
     >
+      <Video className="w-4 h-4 mr-2" />
       {state.is_starting ? 'Starting...' : state.is_stopping ? 'Stopping...' : label}
     </button>
   );

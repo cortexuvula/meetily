@@ -27,21 +27,29 @@ export function useVideoRecordingState() {
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
 
     (async () => {
       try {
         const initial = await invoke<VideoRecordingStateDto>('get_video_recording_state');
-        setState(initial);
+        if (!cancelled) setState(initial);
       } catch (e) {
         console.error('useVideoRecordingState: initial fetch failed', e);
       }
 
-      unlisten = await listen<VideoRecordingStateDto>('video-state-changed', (event) => {
-        setState(event.payload);
-      });
+      try {
+        unlisten = await listen<VideoRecordingStateDto>('video-state-changed', (event) => {
+          if (!cancelled) setState(event.payload);
+        });
+      } catch (e) {
+        console.error('useVideoRecordingState: listen failed', e);
+      }
     })();
 
-    return () => { unlisten?.(); };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   return state;
