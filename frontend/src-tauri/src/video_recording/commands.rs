@@ -40,6 +40,7 @@ pub async fn stop_video_recording<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, VideoState>,
 ) -> Result<PathBuf, VideoRecordingError> {
+    log::info!("[video] Tauri command stop_video_recording ENTERED");
     manager::stop_video_recording(app, state.inner().clone())
 }
 
