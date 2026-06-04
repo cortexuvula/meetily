@@ -28,12 +28,21 @@ pub fn start_video_recording<R: Runtime>(
 ) -> Result<(), VideoRecordingError> {
     state.try_start()?;
 
+    // Helper: every mark_failed path also emits the state change so the UI updates
+    // and logs the error so we can see which failure mode fired.
+    let notify_failed = |err: &VideoRecordingError| {
+        log::warn!("[video] start: failure — {}", err);
+        state.mark_failed(err.clone());
+        let _ = app.emit("video-state-changed", state.dto());
+    };
+
     // 1. Resolve screen and camera.
     let screens = list_screens()
-        .map_err(|e| { state.mark_failed(e.clone()); e })?;
+        .map_err(|e| { notify_failed(&e); e })?;
+    log::info!("[video] start: found {} screen(s)", screens.len());
     if screens.is_empty() {
         let err = VideoRecordingError::NoScreen;
-        state.mark_failed(err.clone());
+        notify_failed(&err);
         return Err(err);
     }
     let resolved_screen_id = match screen_id {
@@ -43,16 +52,17 @@ pub fn start_video_recording<R: Runtime>(
             let err = VideoRecordingError::NeedsScreenSelection {
                 available: serde_json::to_value(&screens).unwrap_or(serde_json::Value::Null),
             };
-            state.mark_failed(err.clone());
+            notify_failed(&err);
             return Err(err);
         }
     };
 
     let cameras = list_cameras()
-        .map_err(|e| { state.mark_failed(e.clone()); e })?;
+        .map_err(|e| { notify_failed(&e); e })?;
+    log::info!("[video] start: found {} camera(s)", cameras.len());
     if cameras.is_empty() {
         let err = VideoRecordingError::NoCamera;
-        state.mark_failed(err.clone());
+        notify_failed(&err);
         return Err(err);
     }
     let resolved_camera_id = match camera_id {
@@ -62,7 +72,7 @@ pub fn start_video_recording<R: Runtime>(
             let err = VideoRecordingError::NeedsCameraSelection {
                 available: serde_json::to_value(&cameras).unwrap_or(serde_json::Value::Null),
             };
-            state.mark_failed(err.clone());
+            notify_failed(&err);
             return Err(err);
         }
     };
@@ -75,7 +85,7 @@ pub fn start_video_recording<R: Runtime>(
     let meeting_folder = save_path.join(&meeting_id);
     std::fs::create_dir_all(&meeting_folder).map_err(|e| {
         let err = VideoRecordingError::WriteFailed(e.to_string());
-        state.mark_failed(err.clone());
+        notify_failed(&err);
         err
     })?;
     let temp_video = std::env::temp_dir().join(format!("meetily_video_{}.mp4", meeting_id));
@@ -86,13 +96,13 @@ pub fn start_video_recording<R: Runtime>(
     // 4. Locate FFmpeg binary.
     let ffmpeg_path = locate_ffmpeg().ok_or_else(|| {
         let err = VideoRecordingError::WriteFailed("ffmpeg binary not found".into());
-        state.mark_failed(err.clone());
+        notify_failed(&err);
         err
     })?;
 
     // 5. Spawn the video-only FFmpeg subprocess.
     let ffmpeg = FfmpegVideoOnly::spawn(&ffmpeg_path, &prefs, target_w, target_h, &temp_video)
-        .map_err(|e| { state.mark_failed(e.clone()); e })?;
+        .map_err(|e| { notify_failed(&e); e })?;
 
     // 6. Build the pipeline and spawn the compositor.
     let mut pipeline = VideoPipeline::new(ffmpeg, prefs.clone(), target_w, target_h);
@@ -101,18 +111,18 @@ pub fn start_video_recording<R: Runtime>(
     // 7. Start the screen capture.
     let mut screen = make_screen_capture();
     screen.start(&resolved_screen_id, pipeline.screen_frame_sink.clone())
-        .map_err(|e| { state.mark_failed(e.clone()); e })?;
+        .map_err(|e| { notify_failed(&e); e })?;
 
     // 8. Start the camera capture.
     let mut camera = make_camera_capture();
     camera.start(&resolved_camera_id, pipeline.camera_frame_sink.clone())
-        .map_err(|e| { state.mark_failed(e.clone()); e })?;
+        .map_err(|e| { notify_failed(&e); e })?;
 
     // 9. Subscribe to the audio broadcast and spawn a thread that writes WAV files.
     let audio_state = crate::audio::recording_commands::current_recording_state()
         .ok_or_else(|| {
             let err = VideoRecordingError::AudioTapFailed("audio recording is not active".into());
-            state.mark_failed(err.clone());
+            notify_failed(&err);
             err
         })?;
     let mut audio_rx = audio_state.subscribe_video_audio_tap();
