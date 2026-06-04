@@ -810,7 +810,7 @@ const Sidebar: React.FC = () => {
               )}
             </button>
 
-            <div className="mt-1">
+            <div className="mt-1" style={{ border: '3px solid red', padding: '2px' }} data-debug="video-button-wrapper">
               <VideoRecordButton
                 meetingId={currentMeeting?.id ?? ''}
                 savePath={videoSavePath}
