@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Runtime, State};
 use crate::video_recording::error::VideoRecordingError;
 use crate::video_recording::manager;
 use crate::video_recording::preferences::VideoPreferences;
@@ -9,6 +9,17 @@ use crate::video_recording::sources::screen::{ScreenInfo, list_screens};
 use crate::video_recording::state::VideoRecordingState;
 
 pub type VideoState = Arc<VideoRecordingState>;
+
+fn load_preferences<R: Runtime>(app: &AppHandle<R>) -> VideoPreferences {
+    use tauri_plugin_store::StoreExt;
+    match app.store("video_preferences.json") {
+        Ok(store) => store
+            .get("preferences")
+            .and_then(|v| serde_json::from_value::<VideoPreferences>(v).ok())
+            .unwrap_or_default(),
+        Err(_) => VideoPreferences::default(),
+    }
+}
 
 #[tauri::command]
 pub async fn start_video_recording<R: Runtime>(
@@ -23,7 +34,7 @@ pub async fn start_video_recording<R: Runtime>(
         "[video] Tauri command ENTERED: meeting_id={:?} save_path={:?} screen_id={:?} camera_id={:?}",
         meeting_id, save_path, screen_id, camera_id
     );
-    let prefs = VideoPreferences::default();
+    let prefs = load_preferences(&app);
     manager::start_video_recording(
         app,
         state.inner().clone(),

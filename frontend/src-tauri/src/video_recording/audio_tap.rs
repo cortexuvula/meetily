@@ -1,7 +1,4 @@
-use tokio::sync::broadcast;
-use std::io::Write;
-use crate::audio::recording_state::{AudioChunk, DeviceType};
-use crate::video_recording::error::VideoRecordingError;
+use crate::audio::recording_state::AudioChunk;
 
 /// Convert a slice of f32 samples in [-1.0, 1.0] to 16-bit signed PCM (little-endian).
 /// Clamps out-of-range values. Uses asymmetric scaling (i16::MAX for positive, -i16::MIN
@@ -20,55 +17,18 @@ pub fn f32_to_pcm16(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-/// Convert a single AudioChunk to interleaved stereo PCM16. If the chunk is mono
-/// (length does not look stereo), it is duplicated to both channels.
+/// Convert an AudioChunk to interleaved stereo PCM16. The chunk's channel
+/// count is not carried on the struct itself, so we conservatively treat the
+/// source as mono and duplicate each sample to L+R. The resulting WAV is
+/// always stereo, which is what the ffmpeg mux expects.
 pub fn chunk_to_pcm16_stereo(chunk: &AudioChunk) -> Vec<u8> {
     let data = &chunk.data;
-    let is_stereo = data.len() % 2 == 0 && data.len() > 1;
-    if is_stereo {
-        f32_to_pcm16(data)
-    } else {
-        let mut dup = Vec::with_capacity(data.len() * 2);
-        for &s in data {
-            dup.push(s);
-            dup.push(s);
-        }
-        f32_to_pcm16(&dup)
+    let mut dup = Vec::with_capacity(data.len() * 2);
+    for &s in data {
+        dup.push(s);
+        dup.push(s);
     }
-}
-
-/// Pull a chunk off the broadcast and write it to the appropriate pipe.
-pub fn route_chunk_to_pipe(
-    chunk: &AudioChunk,
-    mic_pipe: &mut impl Write,
-    system_pipe: &mut impl Write,
-) -> Result<(), VideoRecordingError> {
-    let pcm = chunk_to_pcm16_stereo(chunk);
-    let result = match chunk.device_type {
-        DeviceType::Microphone => mic_pipe.write_all(&pcm),
-        DeviceType::System => system_pipe.write_all(&pcm),
-    };
-    result.map_err(|e| VideoRecordingError::AudioTapFailed(e.to_string()))
-}
-
-/// Subscribe to a broadcast::Receiver<AudioChunk> and forward chunks to the two pipes
-/// until the broadcast closes. Spawned on a dedicated OS thread.
-pub fn run_audio_tap(
-    mut rx: broadcast::Receiver<AudioChunk>,
-    mut mic_pipe: Box<dyn Write + Send>,
-    mut system_pipe: Box<dyn Write + Send>,
-) {
-    loop {
-        match rx.blocking_recv() {
-            Ok(chunk) => {
-                if route_chunk_to_pipe(&chunk, &mut mic_pipe, &mut system_pipe).is_err() {
-                    break;
-                }
-            }
-            Err(broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(broadcast::error::RecvError::Closed) => break,
-        }
-    }
+    f32_to_pcm16(&dup)
 }
 
 #[cfg(test)]
@@ -111,16 +71,16 @@ mod tests {
     }
 
     #[test]
-    fn chunk_to_pcm16_writes_interleaved_stereo() {
-        let chunk = make_chunk(DeviceType::Microphone, vec![0.5, -0.5, 0.5, -0.5]);
+    fn chunk_to_pcm16_duplicates_mono_to_stereo() {
+        let chunk = make_chunk(DeviceType::Microphone, vec![0.5, -0.5]);
         let pcm = chunk_to_pcm16_stereo(&chunk);
-        let expected_half_pos = (0.5_f32 * i16::MAX as f32) as i16;
-        let expected_half_neg = (0.5_f32 * i16::MIN as f32) as i16;
+        let pos = (0.5_f32 * i16::MAX as f32) as i16;
+        let neg = (0.5_f32 * i16::MIN as f32) as i16;
         let mut expected = Vec::new();
-        expected.extend_from_slice(&expected_half_pos.to_le_bytes());
-        expected.extend_from_slice(&expected_half_neg.to_le_bytes());
-        expected.extend_from_slice(&expected_half_pos.to_le_bytes());
-        expected.extend_from_slice(&expected_half_neg.to_le_bytes());
+        expected.extend_from_slice(&pos.to_le_bytes());
+        expected.extend_from_slice(&pos.to_le_bytes());
+        expected.extend_from_slice(&neg.to_le_bytes());
+        expected.extend_from_slice(&neg.to_le_bytes());
         assert_eq!(pcm, expected);
     }
 }

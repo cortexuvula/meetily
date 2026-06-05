@@ -18,6 +18,9 @@ pub trait CameraCapture: Send {
         Self: Sized;
     fn start(&mut self, camera_id: &str, frame_sink: Sender<VideoFrame>) -> Result<(), VideoRecordingError>;
     fn stop(&mut self);
+    /// Returns the last error reported by the capture thread, if any.
+    /// Cleared at the start of each `start()` call.
+    fn last_error(&self) -> Option<String>;
 }
 
 pub fn make_camera_capture() -> Box<dyn CameraCapture> {

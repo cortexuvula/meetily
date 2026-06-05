@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use crossbeam_channel::Sender;
 use nokhwa::pixel_format::RgbAFormat;
-use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
+use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType, Resolution};
 use nokhwa::Camera;
+use parking_lot::Mutex;
 
 use super::{CameraCapture, CameraInfo};
 use crate::video_recording::error::VideoRecordingError;
@@ -15,6 +16,7 @@ use crate::video_recording::sources::video_frame::VideoFrame;
 pub struct LinuxCameraCapture {
     stop_flag: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl LinuxCameraCapture {
@@ -22,6 +24,7 @@ impl LinuxCameraCapture {
         Self {
             stop_flag: Arc::new(AtomicBool::new(false)),
             thread: None,
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -51,20 +54,29 @@ impl CameraCapture for LinuxCameraCapture {
             .parse()
             .map_err(|_| VideoRecordingError::CameraCaptureFailed("invalid camera id".into()))?;
 
+        *self.last_error.lock() = None;
         self.stop_flag.store(false, Ordering::Relaxed);
         let stop = self.stop_flag.clone();
+        let last_error = self.last_error.clone();
 
         let handle = thread::spawn(move || {
-            let format = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
+            // Ask nokhwa for the highest resolution close to 1280x720. The
+            // compositor will scale the captured frame to the configured
+            // PipSize, so 720p is more than enough source resolution.
+            let format = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::HighestResolution(
+                Resolution::new(1280, 720),
+            ));
             let mut camera = match Camera::new(CameraIndex::Index(index), format) {
                 Ok(c) => c,
                 Err(e) => {
                     log::warn!("camera open failed: {}", e);
+                    *last_error.lock() = Some(format!("camera open failed: {}", e));
                     return;
                 }
             };
             if let Err(e) = camera.open_stream() {
                 log::warn!("camera open_stream failed: {}", e);
+                *last_error.lock() = Some(format!("camera open_stream failed: {}", e));
                 return;
             }
 
@@ -91,10 +103,12 @@ impl CameraCapture for LinuxCameraCapture {
                         }
                         Err(e) => {
                             log::warn!("camera decode failed: {}", e);
+                            *last_error.lock() = Some(format!("camera decode failed: {}", e));
                         }
                     },
                     Err(e) => {
                         log::warn!("camera frame error: {}", e);
+                        *last_error.lock() = Some(format!("camera frame error: {}", e));
                         break;
                     }
                 }
@@ -111,5 +125,9 @@ impl CameraCapture for LinuxCameraCapture {
         if let Some(h) = self.thread.take() {
             let _ = h.join();
         }
+    }
+
+    fn last_error(&self) -> Option<String> {
+        self.last_error.lock().clone()
     }
 }

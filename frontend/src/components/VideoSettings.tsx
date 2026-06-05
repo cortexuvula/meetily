@@ -50,6 +50,7 @@ export function VideoSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const [p, s, c] = await Promise.all([
@@ -57,14 +58,19 @@ export function VideoSettings() {
           invoke<ScreenInfo[]>('list_video_screens'),
           invoke<CameraInfo[]>('list_video_cameras'),
         ]);
+        if (cancelled) return;
         setPrefs(p);
         setScreens(s);
         setCameras(c);
       } catch (e) {
+        if (cancelled) return;
         console.error('Failed to load video preferences', e);
         toast.error('Failed to load video preferences');
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const update = (patch: Partial<VideoPreferences>) => {

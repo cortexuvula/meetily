@@ -12,8 +12,10 @@ export function VideoPreviewOverlay() {
   const state = useVideoRecordingState();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [position, setPosition] = useState({ x: 20, y: 20 });
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const positionRef = useRef(position);
+  positionRef.current = position;
 
   useEffect(() => {
     if (!state.is_recording) {
@@ -52,6 +54,26 @@ export function VideoPreviewOverlay() {
     };
   }, [state.is_recording]);
 
+  useEffect(() => {
+    if (!state.is_recording) return;
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      setPosition({
+        x: e.clientX - dragOffsetRef.current.x,
+        y: e.clientY - dragOffsetRef.current.y,
+      });
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [state.is_recording]);
+
   if (!state.is_recording) return null;
 
   return (
@@ -59,14 +81,8 @@ export function VideoPreviewOverlay() {
       style={{ left: position.x, top: position.y }}
       className="fixed z-40 bg-black rounded-lg shadow-lg p-2 cursor-move"
       onMouseDown={(e) => {
-        setDragging(true);
-        dragOffset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
-      }}
-      onMouseUp={() => setDragging(false)}
-      onMouseLeave={() => setDragging(false)}
-      onMouseMove={(e) => {
-        if (!dragging) return;
-        setPosition({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+        draggingRef.current = true;
+        dragOffsetRef.current = { x: e.clientX - positionRef.current.x, y: e.clientY - positionRef.current.y };
       }}
     >
       <canvas ref={canvasRef} width={240} height={180} className="rounded" />

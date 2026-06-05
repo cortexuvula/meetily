@@ -20,8 +20,8 @@ pub enum VideoRecordingError {
     #[error("Multiple cameras detected. Please pick which one to record.")]
     NeedsCameraSelection { available: serde_json::Value },
 
-    #[error("FFmpeg process exited with code {0}.")]
-    FfmpegFailed(i32),
+    #[error("FFmpeg process exited with code {code}: {message}")]
+    FfmpegFailed { code: i32, message: String },
 
     #[error("Screen capture stream error: {0}")]
     ScreenCaptureFailed(String),

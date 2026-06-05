@@ -4,6 +4,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+use parking_lot::Mutex;
 
 use super::{ScreenCapture, ScreenInfo};
 use crate::video_recording::error::VideoRecordingError;
@@ -12,6 +13,7 @@ use crate::video_recording::sources::video_frame::VideoFrame;
 pub struct WindowsScreenCapture {
     stop_flag: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl WindowsScreenCapture {
@@ -19,6 +21,7 @@ impl WindowsScreenCapture {
         Self {
             stop_flag: Arc::new(AtomicBool::new(false)),
             thread: None,
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -63,9 +66,11 @@ impl ScreenCapture for WindowsScreenCapture {
             .height()
             .map_err(|e| VideoRecordingError::ScreenCaptureFailed(e.to_string()))?;
 
+        *self.last_error.lock() = None;
         self.stop_flag.store(false, Ordering::Relaxed);
         let stop = self.stop_flag.clone();
         let monitor_for_thread = monitor.clone();
+        let last_error = self.last_error.clone();
 
         let handle = thread::spawn(move || {
             loop {
@@ -81,6 +86,7 @@ impl ScreenCapture for WindowsScreenCapture {
                     }
                     Err(e) => {
                         log::warn!("screen capture error: {}", e);
+                        *last_error.lock() = Some(format!("screen capture error: {}", e));
                         break;
                     }
                 }
@@ -97,5 +103,9 @@ impl ScreenCapture for WindowsScreenCapture {
         if let Some(h) = self.thread.take() {
             let _ = h.join();
         }
+    }
+
+    fn last_error(&self) -> Option<String> {
+        self.last_error.lock().clone()
     }
 }
