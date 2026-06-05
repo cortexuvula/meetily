@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useVideoRecordingState } from './useVideoRecordingState';
 
-const PREVIEW_FPS = 5;
+interface PreviewFramePayload {
+  width: number;
+  height: number;
+  bgra: number[];
+}
 
 export function VideoPreviewOverlay() {
   const state = useVideoRecordingState();
@@ -9,57 +14,41 @@ export function VideoPreviewOverlay() {
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
-  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     if (!state.is_recording) {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
       return;
     }
 
+    let unlisten: UnlistenFn | undefined;
     let cancelled = false;
-    const ctx = canvasRef.current?.getContext('2d');
 
     (async () => {
       try {
-        const display = await (navigator.mediaDevices as unknown as {
-          getDisplayMedia: (c: MediaStreamConstraints) => Promise<MediaStream>;
-        }).getDisplayMedia({ video: true, audio: false });
-        const camera = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        if (cancelled) {
-          display.getTracks().forEach((t) => t.stop());
-          camera.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = new MediaStream([
-          ...display.getVideoTracks(),
-          ...camera.getVideoTracks(),
-        ]);
-        const video = document.createElement('video');
-        video.srcObject = streamRef.current;
-        video.muted = true;
-        video.play();
-        const interval = window.setInterval(() => {
-          if (!ctx || !canvasRef.current) return;
-          if (video.readyState >= 2) {
-            ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
-          }
-        }, 1000 / PREVIEW_FPS);
-        (streamRef.current as unknown as { _intervalId?: number })._intervalId = interval;
+        unlisten = await listen<PreviewFramePayload>('video-preview-frame', (event) => {
+          if (cancelled) return;
+          const { width, height, bgra } = event.payload;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          const clamped = new Uint8ClampedArray(bgra);
+          const imageData = new ImageData(clamped, width, height);
+          ctx.putImageData(imageData, 0, 0);
+        });
       } catch (e) {
-        console.warn('VideoPreviewOverlay: could not start preview streams', e);
+        console.warn('VideoPreviewOverlay: failed to subscribe to video-preview-frame', e);
       }
     })();
 
     return () => {
       cancelled = true;
-      if (streamRef.current) {
-        const id = (streamRef.current as unknown as { _intervalId?: number })._intervalId;
-        if (id) window.clearInterval(id);
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      unlisten?.();
     };
   }, [state.is_recording]);
 
@@ -81,7 +70,7 @@ export function VideoPreviewOverlay() {
       }}
     >
       <canvas ref={canvasRef} width={240} height={180} className="rounded" />
-      <p className="text-white text-xs text-center mt-1">Recording video (preview)</p>
+      <p className="text-white text-xs text-center mt-1">Recording video (live preview)</p>
     </div>
   );
 }

@@ -4,12 +4,40 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Runtime};
 use crate::video_recording::compositor::composite_pip;
 use crate::video_recording::ffmpeg::FfmpegVideoOnly;
 use crate::video_recording::preferences::VideoPreferences;
 use crate::video_recording::sources::video_frame::VideoFrame;
 
 const FRAME_BUFFER: usize = 30;
+pub const PREVIEW_EVENT: &str = "video-preview-frame";
+pub const PREVIEW_WIDTH: u32 = 240;
+pub const PREVIEW_HEIGHT: u32 = 180;
+const PREVIEW_FRAME_INTERVAL: u32 = 6; // emit ~5 fps at 30 fps recording
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewFrame {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+}
+
+/// Downscale a BGRA frame to the preview size by nearest-neighbor sampling.
+fn downscale_to_preview(src: &[u8], src_w: u32, src_h: u32) -> Vec<u8> {
+    let mut dst = vec![0u8; (PREVIEW_WIDTH * PREVIEW_HEIGHT * 4) as usize];
+    for y in 0..PREVIEW_HEIGHT {
+        let src_y = (y * src_h / PREVIEW_HEIGHT) as usize;
+        for x in 0..PREVIEW_WIDTH {
+            let src_x = (x * src_w / PREVIEW_WIDTH) as usize;
+            let src_idx = (src_y * src_w as usize + src_x) * 4;
+            let dst_idx = (y * PREVIEW_WIDTH + x) as usize * 4;
+            dst[dst_idx..dst_idx + 4].copy_from_slice(&src[src_idx..src_idx + 4]);
+        }
+    }
+    dst
+}
 
 pub struct VideoPipeline {
     pub ffmpeg: FfmpegVideoOnly,
@@ -42,7 +70,7 @@ impl VideoPipeline {
         }
     }
 
-    pub fn spawn_compositor(&mut self) {
+    pub fn spawn_compositor<R: Runtime>(&mut self, app: AppHandle<R>) {
         let stop = self.stop_flag.clone();
         let prefs = self.prefs.clone();
         let target_w = self.target_w;
@@ -54,6 +82,7 @@ impl VideoPipeline {
         self.compositor_handle = Some(thread::spawn(move || {
             let mut latest_screen: Option<VideoFrame> = None;
             let mut latest_camera: Option<VideoFrame> = None;
+            let mut frame_counter: u32 = 0;
 
             loop {
                 if stop.load(Ordering::Relaxed) {
@@ -87,6 +116,22 @@ impl VideoPipeline {
                     if video_stdin.write_all(&out_buf).is_err() {
                         break;
                     }
+
+                    // Emit a low-res preview every Nth frame so the webview
+                    // can show the user what's actually being recorded.
+                    frame_counter = frame_counter.wrapping_add(1);
+                    if frame_counter % PREVIEW_FRAME_INTERVAL == 0 {
+                        let preview = downscale_to_preview(&out_buf, target_w, target_h);
+                        let _ = app.emit(
+                            PREVIEW_EVENT,
+                            PreviewFrame {
+                                width: PREVIEW_WIDTH,
+                                height: PREVIEW_HEIGHT,
+                                bgra: preview,
+                            },
+                        );
+                    }
+
                     latest_screen = None;
                 }
             }

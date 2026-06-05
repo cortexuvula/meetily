@@ -129,7 +129,7 @@ pub fn start_video_recording<R: Runtime>(
 
     // 6. Build the pipeline and spawn the compositor.
     let mut pipeline = VideoPipeline::new(ffmpeg, prefs.clone(), target_w, target_h);
-    pipeline.spawn_compositor();
+    pipeline.spawn_compositor(app.clone());
 
     // 7. Start the screen capture.
     let mut screen = make_screen_capture();
