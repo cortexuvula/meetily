@@ -224,15 +224,17 @@ pub fn stop_video_recording<R: Runtime>(app: AppHandle<R>, state: Arc<VideoRecor
     running.screen.stop();
     running.camera.stop();
 
-    // 3. Wait for the compositor thread to drain its last frames.
+    // 3. Wait for the compositor thread to drain its last frames and exit.
+    //    When the thread exits, its owned `video_stdin` is dropped, which
+    //    closes the underlying pipe and signals EOF to ffmpeg — so ffmpeg
+    //    finalizes the temp video. We do NOT call take_video_stdin() here
+    //    because the compositor thread already owns the stdin.
     if let Some(handle) = running.pipeline.compositor_handle.take() {
         let _ = handle.join();
     }
 
-    // 4. Take the FFmpeg child out and drop the video_stdin (signals EOF).
+    // 4. Take the FFmpeg child out so we can wait for it to exit.
     let mut ffmpeg = running.pipeline.ffmpeg;
-    let video_stdin = ffmpeg.take_video_stdin();
-    drop(video_stdin);
     let mut child = ffmpeg.take_child();
     drop(ffmpeg);
 
