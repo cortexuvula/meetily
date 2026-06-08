@@ -72,15 +72,21 @@ impl ScreenCapture for MacosScreenCapture {
         let monitor_for_thread = monitor.clone();
         let last_error = self.last_error.clone();
 
+        let screen_id_owned = screen_id.to_string();
         let handle = thread::spawn(move || {
+            log::info!("[video] screen capture thread: starting for screen_id {}", screen_id_owned);
             loop {
                 if stop.load(Ordering::Relaxed) {
+                    log::info!("[video] screen capture thread: stop flag set, exiting");
                     break;
                 }
+                log::trace!("[video] screen capture thread: capturing frame");
                 match monitor_for_thread.capture_image() {
                     Ok(img) => {
                         let bgra = img.into_raw_bgra();
+                        log::trace!("[video] screen capture thread: got frame {}x{}", width, height);
                         if frame_sink.send(VideoFrame::new(width, height, bgra)).is_err() {
+                            log::info!("[video] screen capture thread: frame sink closed, exiting");
                             break;
                         }
                     }
@@ -92,6 +98,7 @@ impl ScreenCapture for MacosScreenCapture {
                 }
                 thread::sleep(Duration::from_millis(33));
             }
+            log::info!("[video] screen capture thread: exiting");
         });
 
         self.thread = Some(handle);

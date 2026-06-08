@@ -62,7 +62,11 @@ pub fn start_video_recording<R: Runtime>(
         let _ = app.emit("video-state-changed", state.dto());
     };
 
-    // 1. Resolve screen and camera.
+    // 1. Resolve screen. Camera is optional — only used if explicitly
+    //    requested via `camera_id`. nokhwa's Camera::new() can panic in an
+    //    extern "C" AVFoundation callback, which is uncatchable and aborts
+    //    the process.  By making camera opt-in we avoid that crash path
+    //    entirely; screen-only recording still works.
     let screens = list_screens()
         .map_err(|e| { notify_failed(&e); e })?;
     log::info!("[video] start: found {} screen(s)", screens.len());
@@ -83,23 +87,14 @@ pub fn start_video_recording<R: Runtime>(
         }
     };
 
-    let cameras = list_cameras()
-        .map_err(|e| { notify_failed(&e); e })?;
-    log::info!("[video] start: found {} camera(s)", cameras.len());
-    if cameras.is_empty() {
-        let err = VideoRecordingError::NoCamera;
-        notify_failed(&err);
-        return Err(err);
-    }
-    let resolved_camera_id = match camera_id {
-        Some(id) => id,
-        None if cameras.len() == 1 => cameras[0].id.clone(),
+    let resolved_camera_id: Option<String> = match camera_id {
+        Some(id) => {
+            log::info!("[video] start: camera explicitly requested: {}", id);
+            Some(id)
+        }
         None => {
-            let err = VideoRecordingError::NeedsCameraSelection {
-                available: serde_json::to_value(&cameras).unwrap_or(serde_json::Value::Null),
-            };
-            notify_failed(&err);
-            return Err(err);
+            log::info!("[video] start: no camera requested, recording screen-only");
+            None
         }
     };
 
@@ -155,10 +150,19 @@ pub fn start_video_recording<R: Runtime>(
     screen.start(&resolved_screen_id, pipeline.screen_frame_sink.clone())
         .map_err(|e| { notify_failed(&e); e })?;
 
-    // 8. Start the camera capture.
+    // 8. Start the camera capture (optional — screen-only if no camera requested).
     let mut camera = make_camera_capture();
-    camera.start(&resolved_camera_id, pipeline.camera_frame_sink.clone())
-        .map_err(|e| { notify_failed(&e); e })?;
+    if let Some(ref cam_id) = resolved_camera_id {
+        match camera.start(cam_id, pipeline.camera_frame_sink.clone()) {
+            Ok(()) => log::info!("[video] start: camera capture started"),
+            Err(e) => {
+                log::warn!("[video] start: camera failed, continuing screen-only: {}", e);
+                // Don't return error — continue with screen-only recording
+            }
+        }
+    } else {
+        log::info!("[video] start: skipping camera, screen-only recording");
+    }
 
     // 9. Subscribe to the audio broadcast and spawn a thread that writes WAV files.
     //    If the audio recording is not active, generate silent placeholder WAVs

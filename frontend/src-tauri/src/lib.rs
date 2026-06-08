@@ -422,6 +422,20 @@ pub fn run() {
         .setup(|_app| {
             log::info!("Application setup complete");
 
+            // Initialize nokhwa (camera library) on macOS - must happen before any camera operations
+            #[cfg(target_os = "macos")]
+            {
+                let (tx, rx) = std::sync::mpsc::channel();
+                nokhwa::nokhwa_initialize(move |success| {
+                    let _ = tx.send(success);
+                });
+                match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                    Ok(true) => log::info!("Nokhwa initialized successfully (camera permission granted)"),
+                    Ok(false) => log::warn!("Nokhwa initialized but camera permission not granted"),
+                    Err(_) => log::warn!("Nokhwa initialization timed out (permission dialog may be pending)"),
+                }
+            }
+
             // Initialize system tray
             if let Err(e) = tray::create_tray(_app.handle()) {
                 log::error!("Failed to create system tray: {}", e);

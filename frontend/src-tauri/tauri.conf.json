@@ -6,7 +6,7 @@
     "build": {
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
-        "beforeDevCommand": "pnpm dev",
+        "beforeDevCommand": "npx serve out -l 3118 -s",
         "beforeBuildCommand": "pnpm build"
     },
     "app": {
