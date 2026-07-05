@@ -3,19 +3,6 @@ use serde::Serialize;
 
 use crate::database::manager::DatabaseManager;
 
-impl DatabaseState {
-    /// Convenience: get a Cloneable SqlitePool reference from the managed DB state.
-    pub fn pool(&self) -> Result<sqlx::SqlitePool, String> {
-        let mgr = require_db(self)?;
-        Ok(mgr.pool())
-    }
-
-    /// Returns the inner DatabaseManager if available.
-    pub fn manager(&self) -> Option<DatabaseManager> {
-        self.db_manager.lock().clone()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum DatabaseStatus {
     Ready,
@@ -41,67 +28,83 @@ impl From<&DatabaseStatus> for DatabaseStatusDto {
     }
 }
 
+/// Managed state that tracks database readiness and holds the pool.
+///
+/// Uses a single mutex over the (status, manager) pair so that transitions
+/// between Ready ↔ Unavailable are always atomic — no TOCTOU window where
+/// `require_db` could see `Ready` but find the manager already cleared.
 pub struct DatabaseState {
-    pub(crate) status: Mutex<DatabaseStatus>,
-    pub(crate) db_manager: Mutex<Option<DatabaseManager>>,
+    inner: Mutex<(DatabaseStatus, Option<DatabaseManager>)>,
 }
 
 impl DatabaseState {
     pub fn initializing() -> Self {
         Self {
-            status: Mutex::new(DatabaseStatus::Unavailable {
-                reason: "Initializing database…".to_string(),
-            }),
-            db_manager: Mutex::new(None),
+            inner: Mutex::new((
+                DatabaseStatus::Unavailable {
+                    reason: "Initializing database…".to_string(),
+                },
+                None,
+            )),
         }
     }
 
     pub fn ready(db_manager: DatabaseManager) -> Self {
         Self {
-            status: Mutex::new(DatabaseStatus::Ready),
-            db_manager: Mutex::new(Some(db_manager)),
+            inner: Mutex::new((DatabaseStatus::Ready, Some(db_manager))),
         }
     }
 
     pub fn unavailable(reason: String) -> Self {
         Self {
-            status: Mutex::new(DatabaseStatus::Unavailable { reason }),
-            db_manager: Mutex::new(None),
+            inner: Mutex::new((DatabaseStatus::Unavailable { reason }, None)),
         }
     }
 
+    /// Atomically transition to Ready — both fields update under one lock.
     pub fn set_ready(&self, db_manager: DatabaseManager) {
-        *self.db_manager.lock() = Some(db_manager);
-        *self.status.lock() = DatabaseStatus::Ready;
+        let mut guard = self.inner.lock();
+        *guard = (DatabaseStatus::Ready, Some(db_manager));
     }
 
+    /// Atomically transition to Unavailable — clears the manager under one lock.
     pub fn set_unavailable(&self, reason: String) {
-        *self.db_manager.lock() = None;
-        *self.status.lock() = DatabaseStatus::Unavailable { reason };
+        let mut guard = self.inner.lock();
+        *guard = (DatabaseStatus::Unavailable { reason }, None);
     }
 
     pub fn status(&self) -> DatabaseStatus {
-        self.status.lock().clone()
+        self.inner.lock().0.clone()
     }
 
     pub fn db_manager(&self) -> Option<DatabaseManager> {
-        self.db_manager.lock().clone()
+        self.inner.lock().1.clone()
     }
 
     pub fn dto(&self) -> DatabaseStatusDto {
         DatabaseStatusDto::from(&self.status())
     }
+
+    /// Convenience: get a Cloneable SqlitePool reference from the managed DB state.
+    pub fn pool(&self) -> Result<sqlx::SqlitePool, String> {
+        let mgr = require_db(self)?;
+        Ok(mgr.pool())
+    }
 }
 
-/// Check the status flag first, then return a copy of the DB manager (DatabaseManager is Clone).
+/// Atomically check readiness and return the manager in a single lock acquisition.
+///
+/// Returns `Err` if the status is Unavailable, or if the manager is missing
+/// despite Ready status (defensive — should never happen in practice).
 pub fn require_db(state: &DatabaseState) -> Result<DatabaseManager, String> {
-    match &*state.status.lock() {
-        DatabaseStatus::Ready => {},
+    let guard = state.inner.lock();
+    match &guard.0 {
+        DatabaseStatus::Ready => {}
         DatabaseStatus::Unavailable { reason } => {
             return Err(format!("DATABASE_UNAVAILABLE: {}", reason));
-         }
-       }
-    state.db_manager.lock().clone()
+        }
+    }
+    guard.1.clone()
         .ok_or_else(|| "DATABASE_UNAVAILABLE: manager missing in Ready state".to_string())
 }
 
@@ -121,8 +124,7 @@ mod tests {
     #[test]
     fn require_db_returns_manager_missing_error_when_ready_but_no_manager() {
         let state = DatabaseState {
-            status: parking_lot::Mutex::new(DatabaseStatus::Ready),
-            db_manager: parking_lot::Mutex::new(None),
+            inner: parking_lot::Mutex::new((DatabaseStatus::Ready, None)),
         };
         let result = require_db(&state);
         assert_eq!(
